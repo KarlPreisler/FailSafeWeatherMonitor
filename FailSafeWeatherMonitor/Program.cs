@@ -1,8 +1,9 @@
-﻿using FailSafeWeatherMonitor.Data;
+﻿using System.Text;
+using FailSafeWeatherMonitor.Data;
+using FailSafeWeatherMonitor.Models;
 using FailSafeWeatherMonitor.Services;
 using Microsoft.EntityFrameworkCore;
 using Spectre.Console;
-using System.Text;
 
 const string ImportFromFile = "Importera historisk data från fil";
 const string Exit = "Avsluta";
@@ -34,7 +35,7 @@ while (true)
     string choice = AnsiConsole.Prompt(
         new SelectionPrompt<string>()
             .Title("[bold]Vad vill du göra?[/]")
-            .AddChoices(ImportFromFile, Exit));
+            .AddChoices(ImportFromFile, FetchFromApi, Exit));
 
     if (choice == Exit)
         break;
@@ -81,7 +82,7 @@ async Task ImportFromFileAsync()
     }
 }
 
-    void ShowError(string message)
+void ShowError(string message)
     {
         AnsiConsole.MarkupLine($"[red]Fel:{Markup.Escape(message)}[/]");
     }
