@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Spectre.Console;
 
 const string ImportFromFile = "Importera historisk data från fil";
+const string FetchFromApi = "Hämta live-data från API";
 const string Exit = "Avsluta";
 
 const string DataFilePath = "weather_data.csv";
@@ -27,6 +28,7 @@ catch (Exception ex)
 
 var repository = new WeatherRepository(_db);
 var importer = new CsvWeatherImporter();
+var apiService = new OpenMeteoService();
 
 AnsiConsole.Write(new FigletText("WeatherMonitor").Color(Color.Teal));
 
@@ -44,6 +46,9 @@ while (true)
     {
         case ImportFromFile:
             await ImportFromFileAsync();
+            break;
+        case FetchFromApi:
+            await FetchFromApiAsync();
             break;
     }
 
@@ -66,23 +71,66 @@ async Task ImportFromFileAsync()
             $"[green]{savedCount} rader importerade[/], [red]{result.RejectedLines.Count} rader förkastade på grund av fel[/].");
 
         if (duplicateCount > 0)
-            AnsiConsole.MarkupLine($"[yellow]{duplicateCount} rader fanns redan i databasen och importerades inte.[/]");
+            AnsiConsole.MarkupLine($"[yellow]{duplicateCount} rader fanns redan i databasen och sparades inte.[/]");
 
         if (result.RejectedLines.Count > 0)
             AnsiConsole.MarkupLine($"[grey]Förkastade rader har loggats i {Markup.Escape(Path.GetFullPath(BadDataLogPath))}[/]");
-
     }
     catch (FileNotFoundException)
     {
-        ShowError($"Hittade inte Datafilen {DataFilePath}.");
+        ShowError($"Hittade inte datafilen {DataFilePath}.");
     }
     catch (Exception ex)
     {
-        ShowError($"Ett fel uppstod under importen: {ex.Message}");
+        ShowError($"Importen misslyckades: {ex.Message}");
+    }
+}
+
+async Task FetchFromApiAsync()
+{
+    try
+    {
+        WeatherDataPoint? point = await apiService.GetCurrentWeatherAsync();
+        if (point is null)
+        {
+            ShowError("Open-Meteo svarade, men svaret saknade värden för innevarande timme.");
+            return;
+        }
+
+        int savedCount = await repository.AddNewAsync(new List<WeatherDataPoint> { point });
+
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .Title("[bold]Aktuellt väder[/]")
+            .AddColumn("Station")
+            .AddColumn("Tidpunkt (UTC)")
+            .AddColumn(new TableColumn("Temperatur").RightAligned())
+            .AddColumn(new TableColumn("Luftfuktighet").RightAligned());
+
+        table.AddRow(
+            Markup.Escape(point.StationName),
+            point.Timestamp.ToString("yyyy-MM-dd HH:mm"),
+            $"{point.Temperature:F1} °C",
+            $"{point.Humidity:F0} %");
+
+        AnsiConsole.Write(table);
+
+        if (savedCount == 1)
+            AnsiConsole.MarkupLine("[green]Mätningen sparades i databasen.[/]");
+        else
+            AnsiConsole.MarkupLine("[yellow]En mätning för den här timmen fanns redan och sparades inte igen.[/]");
+    }
+    catch (HttpRequestException ex)
+    {
+        ShowError($"Nätverksfel – kunde inte nå Open-Meteo: {ex.Message}");
+    }
+    catch (Exception ex)
+    {
+        ShowError($"Hämtningen misslyckades: {ex.Message}");
     }
 }
 
 void ShowError(string message)
-    {
-        AnsiConsole.MarkupLine($"[red]Fel:{Markup.Escape(message)}[/]");
-    }
+{
+    AnsiConsole.MarkupLine($"[red]Fel:[/] {Markup.Escape(message)}");
+}
